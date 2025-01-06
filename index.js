@@ -1,64 +1,63 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const mysql = require('mysql2');
+const mongoose = require('mongoose');
 const path = require('path');
+require('dotenv').config();
 
 const app = express();
 const port = 3000;
 
-// MySQL 연결 설정
-const connection = mysql.createConnection({
-    host: 'localhost',
-    user: 'root',
-    password: 'your_password',
-    database: 'agree_db'
+// EJS 설정 추가
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
+
+// MongoDB 연결 설정
+const mongoURI = process.env.MONGODB_URI;
+
+mongoose.connect(mongoURI)
+    .then(() => console.log('MongoDB Atlas에 연결되었습니다.'))
+    .catch(err => console.error('MongoDB 연결 오류:', err));
+
+// 사용자 스키마 정의
+const userSchema = new mongoose.Schema({
+    email: { type: String, required: true },
+    agree: { type: Boolean, required: true },
+    transformId: { type: String, required: true },
+    created_at: { type: Date, default: Date.now }
 });
 
-// 데이터베이스 연결
-connection.connect((err) => {
-    if (err) {
-        console.error('Error connecting to MySQL:', err);
-        return;
-    }
-    console.log('Connected to MySQL database');
-    
-    // users 테이블 생성
-    const createTableQuery = `
-        CREATE TABLE IF NOT EXISTS users (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            name VARCHAR(255) NOT NULL,
-            email VARCHAR(255) NOT NULL,
-            phone VARCHAR(20) NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    `;
-    
-    connection.query(createTableQuery, (err) => {
-        if (err) {
-            console.error('Error creating table:', err);
-            return;
-        }
-        console.log('Users table created or already exists');
-    });
-});
+const User = mongoose.model('User', userSchema);
 
 // 미들웨어 설정
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// 폼 제출 처리
-app.post('/submit', (req, res) => {
-    const { name, email, phone } = req.body;
-    
-    const query = 'INSERT INTO users (name, email, phone) VALUES (?, ?, ?)';
-    connection.query(query, [name, email, phone], (err, results) => {
-        if (err) {
-            console.error('Error inserting data:', err);
-            res.status(500).send('데이터 저장 중 오류가 발생했습니다.');
-            return;
-        }
-        res.send('회원가입이 완료되었습니다!');
+app.get('/', (req, res) => {
+    const email = req.query.email || '';
+    res.render('index', { 
+        email: email,
+        title: '동의 페이지' // EJS 템플릿에서 사용할 추가 데이터
     });
+});
+
+// 폼 제출 처리 수정
+app.post('/submit', async (req, res) => {
+    const { email, transformId } = req.body;
+    const agree = req.body.agree === 'on';
+
+    try {
+        const user = new User({ email, agree, transformId });
+        await user.save();
+        res.render('success', { 
+            message: '동의가 완료되었습니다!',
+            user: user 
+        });
+    } catch (err) {
+        console.error('데이터 저장 오류:', err);
+        res.render('error', { 
+            error: '데이터 저장 중 오류가 발생했습니다.' 
+        });
+    }
 });
 
 // 서버 시작
